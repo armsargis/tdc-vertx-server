@@ -1,0 +1,129 @@
+apply plugin: 'maven'
+apply plugin: 'signing'
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// custom maven tasks
+
+task sourceJar(type: Jar) {
+	description = 'Builds a source jar artifact suitable for maven deployment.'
+	classifier = 'sources'
+	from sourceSets.main.java
+}
+
+task javadocJar(type: Jar) {
+	description = 'Builds a javadoc jar artifact suitable for maven deployment.'
+	classifier = 'javadoc'
+	from javadoc.destinationDir
+}
+javadocJar.dependsOn javadoc
+
+build.dependsOn sourceJar, javadocJar
+
+artifacts {
+	archives sourceJar, javadocJar
+}
+
+def loadProperties(String sourceFileName) {
+  def config = new Properties()
+  def propFile = new File(sourceFileName)
+  if (propFile.canRead()) {
+    config.load(new FileInputStream(propFile))
+    for (Map.Entry property in config) {
+      project.ext[property.key] = property.value;
+    }
+  }
+}
+
+// We  have to explicitly load props from the user home dir - on CI we set
+// GRADLE_USER_HOME to a different dir to avoid problems with concurrent builds corrupting
+// a shared Maven local and using Gradle wrapper concurrently
+loadProperties("${System.getProperty('user.home')}/.gradle/gradle.properties")
+
+if (!hasProperty('sonatypeUsername')) {
+	ext.sonatypeUsername = ''
+}
+if (!hasProperty('sonatypePassword')) {
+	ext.sonatypePassword = ''
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// maven task configuration
+
+ext.isReleaseVersion = !version.endsWith("SNAPSHOT")
+
+signing {
+	required { isReleaseVersion && gradle.taskGraph.hasTask("uploadArchives") }
+	sign configurations.archives
+}
+
+uploadArchives {
+	group 'build'
+	description = "Does a maven deploy of archives artifacts"
+
+	repositories {
+		mavenDeployer {
+			configuration = configurations.archives
+
+			repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+				authentication(userName: sonatypeUsername, password: sonatypePassword)
+			}
+
+			snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+				authentication(userName: sonatypeUsername, password: sonatypePassword)
+			}
+
+			if (isReleaseVersion) {
+				beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+			}
+
+			configurePom(pom)
+		}
+	}
+}
+
+install {
+	group = 'build'
+	description = "Does a maven install of archives artifacts to local m2 cache"
+	configurePom(repositories.mavenInstaller.pom)
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// configuration methods
+
+def configurePom(def pom) {
+	pom.project {
+		name rootProject.name
+		description 'TDC vert.x base file repository server'
+		groupId rootProject.group
+		inceptionYear '2013'
+		packaging 'jar'
+		url 'https://github.com/armsargis/tdc-vertx-server'
+
+		developers {
+            developer {
+                id 'armsargis'
+                name 'Sargis Harutyunyan'
+                email 'armsargis@gmail.com'
+            }
+        }
+
+		scm {
+	        connection 'scm:https://github.com/armsargis/tdc-vertx-server'
+	        developerConnection 'scm:git@github.com:armsargis/tdc-vertx-server.git'
+	        url 'https://github.com/armsargis/tdc-vertx-server'
+		}
+
+		licenses {
+			license {
+				name 'The Apache Software License, Version 2.0'
+				url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+				distribution 'repo'
+			}
+		}
+
+		properties {
+			setProperty('project.build.sourceEncoding', 'UTF8')
+		}
+	}
+}
