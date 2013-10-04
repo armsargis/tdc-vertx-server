@@ -1,0 +1,5 @@
+.gradle/
+build/
+tdc-vertx-server.iml
+tdc-vertx-server.ipr
+tdc-vertx-server.iws
